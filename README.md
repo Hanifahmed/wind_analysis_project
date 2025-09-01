@@ -46,7 +46,7 @@ The project is designed for **industry applications**, allowing quick assessment
 
 
 ## How to Run
-1. Open `notebooks/wind_analysis.ipynb` in Google Colab.
+1. Open `notebooks/wind_data_analysis.ipynb` in Google Colab.
 2. Install required packages:
    ```python
    !pip install numpy pandas matplotlib scipy xarray windrose
