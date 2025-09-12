@@ -1,52 +1,82 @@
-# Wind Analysis Project
+Wind Capacity Analysis
 
-## Project Overview
-This project performs a **preliminary wind resource assessment** using ERA5 reanalysis data.  
-It calculates key wind statistics, wind power density, turbine mean power, annual energy production (AEP), and capacity factors for different hub heights and turbine models.
+This project analyzes hourly wind capacity factor (CF) data for Germany, Denmark, and the Netherlands (2024 ERA5/ECMWF data). The workflow includes preprocessing, descriptive statistics, exploratory analysis, extreme wind detection, reliability analysis, and energy production estimates.
 
-The project is designed for **industry applications**, allowing quick assessment of potential wind sites.
+Features
 
+Preprocess raw ERA5/ECMWF CSV data (skips metadata rows).
 
-## Data Source
-- ERA5 Reanalysis Data (10m & 100m wind components, temperature, pressure)
-- Time period: [Specify your range, e.g., 2023-01-01 to 2023-12-31]
-- Variables used: `wind_speed_10m`, `u10`, `v10`, `temp_2m`, `msl_pressure`
+Analyze Germany, Denmark, and Netherlands wind CF.
 
+Visualizations:
 
-## Project Structure
+Hourly, daily, weekly, and monthly CF plots.
 
+Histograms and boxplots.
 
-## Analysis Workflow
+Diurnal and monthly wind patterns.
 
-1. **Data Preprocessing**
-   - Extract wind speed from ERA5 data
-   - Compute magnitude from `u10` and `v10`
-   - Clean missing values
+Extreme wind periods (low/high thresholds).
 
-2. **Wind Statistics**
-   - Mean, min, max wind speed
-   - Histogram and Weibull fit
-   - Weibull parameters: shape `k`, scale `c`
-
-3. **Wind Power Analysis**
-   - Wind Power Density (W/m²)
-   - Mean power per turbine (kW)
-   - Annual Energy Production (MWh)
-   - Capacity Factor (%)
-   - Comparison of different hub heights & turbine models
-
-4. **Visualization**
-   - Wind speed histogram
-   - Weibull distribution plot
-   - Optional: wind rose
-
-5. **Reporting**
-   - Summary report with key results
-   - Recommendations for turbine selection & hub height
+Reliability bar charts.
 
 
-## How to Run
-1. Open `notebooks/wind_data_analysis.ipynb` in Google Colab.
-2. Install required packages:
-   ```python
-   !pip install numpy pandas matplotlib scipy xarray windrose
+Capacity Factor (CF) and Annual Energy Production (AEP) estimates.
+
+
+Figures
+
+All figures are shown during execution (so you can view results directly in Colab/IDE).
+
+Figures are also saved automatically in the Figures/ folder as PNG files.
+
+Saved with consistent DPI and tight layout for publication quality.
+
+
+Usage
+
+1. Place your CSV file in the data/ directory and update the DATA_FILE variable in the script if needed.
+
+
+2. Run the Python script (wind_capacity_analysis.py).
+
+
+3. Check the Figures/ folder for all generated plots.
+
+
+4. Console output will display descriptive statistics, summaries, and energy calculations.
+
+
+
+Example Output
+
+Germany Annual Capacity Factor
+
+Germany Estimated Annual Energy Production (AEP)
+
+Comparative reliability summaries for DE, DK, NL
+
+
+Project Structure
+
+wind-energy-analysis/
+│── data/                # Input datasets (.csv)
+│── Figures/             # Saved plots (.png)
+│── notebooks/           # Original Jupyter notebooks (.ipynb)
+│── src/                 # Python scripts (.py)
+│── README.md            # Project documentation (this file)
+
+Notes
+
+The script uses Matplotlib and Seaborn for visualization.
+
+Reliability thresholds and extreme wind thresholds are configurable.
+
+Rated turbine capacity for AEP is set to 3 MW (modifiable in script).
+
+
+
+---
+
+This project is structured for portfolio and GitHub publishing — ready to showcase on LinkedIn.
+
