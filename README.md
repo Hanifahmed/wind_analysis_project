@@ -1,82 +1,39 @@
-Wind Capacity Analysis
+# 🌍 Wind Capacity Analysis (Germany, Denmark, Netherlands)
 
-This project analyzes hourly wind capacity factor (CF) data for Germany, Denmark, and the Netherlands (2024 ERA5/ECMWF data). The workflow includes preprocessing, descriptive statistics, exploratory analysis, extreme wind detection, reliability analysis, and energy production estimates.
-
-Features
-
-Preprocess raw ERA5/ECMWF CSV data (skips metadata rows).
-
-Analyze Germany, Denmark, and Netherlands wind CF.
-
-Visualizations:
-
-Hourly, daily, weekly, and monthly CF plots.
-
-Histograms and boxplots.
-
-Diurnal and monthly wind patterns.
-
-Extreme wind periods (low/high thresholds).
-
-Reliability bar charts.
-
-
-Capacity Factor (CF) and Annual Energy Production (AEP) estimates.
-
-
-Figures
-
-All figures are shown during execution (so you can view results directly in Colab/IDE).
-
-Figures are also saved automatically in the Figures/ folder as PNG files.
-
-Saved with consistent DPI and tight layout for publication quality.
-
-
-Usage
-
-1. Place your CSV file in the data/ directory and update the DATA_FILE variable in the script if needed.
-
-
-2. Run the Python script (wind_capacity_analysis.py).
-
-
-3. Check the Figures/ folder for all generated plots.
-
-
-4. Console output will display descriptive statistics, summaries, and energy calculations.
-
-
-
-Example Output
-
-Germany Annual Capacity Factor
-
-Germany Estimated Annual Energy Production (AEP)
-
-Comparative reliability summaries for DE, DK, NL
-
-
-Project Structure
-
-wind-energy-analysis/
-│── data/                # Input datasets (.csv)
-│── Figures/             # Saved plots (.png)
-│── notebooks/           # Original Jupyter notebooks (.ipynb)
-│── src/                 # Python scripts (.py)
-│── README.md            # Project documentation (this file)
-
-Notes
-
-The script uses Matplotlib and Seaborn for visualization.
-
-Reliability thresholds and extreme wind thresholds are configurable.
-
-Rated turbine capacity for AEP is set to 3 MW (modifiable in script).
-
-
+This project analyzes **hourly wind capacity factor (CF)** data for **Germany (DE)**, **Denmark (DK)**, and **the Netherlands (NL)** using **2024 ERA5/ECMWF reanalysis data**.  
+It evaluates wind performance, extreme wind events, reliability thresholds, and annual energy production estimates.
 
 ---
 
-This project is structured for portfolio and GitHub publishing — ready to showcase on LinkedIn.
+## 🔑 Features
+- **Preprocessing**
+  - Reads ERA5/ECMWF CSV (skips metadata rows).
+  - Cleans and prepares time-indexed CF datasets.
+- **Exploratory Analysis**
+  - Hourly, daily, weekly, and monthly CF plots.
+  - Histograms, boxplots, diurnal & seasonal patterns.
+- **Extreme Wind Analysis**
+  - Identifies low-wind and high-wind periods.
+  - Calculates consecutive extreme wind durations.
+- **Reliability Analysis**
+  - Evaluates probabilities across thresholds `[0.1, 0.2, 0.3, 0.4]`.
+  - Generates reliability bar charts.
+- **Energy Production**
+  - Capacity Factor (CF) estimation.
+  - Annual Energy Production (AEP) calculation for a 3 MW turbine.
 
+---
+
+## 📊 Figures
+- Plots are **shown live** during execution (in Colab/IDE).
+- Figures are also **saved automatically** in the `Figures/` folder as `.png`.
+- Saved with consistent DPI and tight layout for **publication-ready quality**.
+
+---
+
+## ⚙️ Usage
+1. Place your dataset in the `data/` folder.  
+   Update the `DATA_FILE` variable in `src/wind_capacity_analysis.py` if needed.  
+2. Run the script:
+   ```bash
+   python src/wind_capacity_analysis.py
