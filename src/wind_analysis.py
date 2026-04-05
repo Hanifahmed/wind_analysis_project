@@ -1,156 +1,326 @@
 import os
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
+
 
 # ==============================
 # Configuration
 # ==============================
-DATA_FILE = "data/ERA5_Wind_2024.csv"
+
+DATA_FILE = "data/H_ERA5_ECMW_T639_WON_NA---_Pecd_NUT0_S202401010000_E202412312300_CFR_TIM_01h_COM_noc_org_30_NA---_ReGrB_PhM04_PECD4.2_fv1.csv"
 FIG_FOLDER = "Figures"
+COUNTRIES = ["DE", "DK", "NL"]
+COUNTRY_NAMES = {
+    "DE": "Germany",
+    "DK": "Denmark",
+    "NL": "Netherlands",
+}
+
+LOW_CF_THRESHOLD = 0.05
+HIGH_CF_THRESHOLD = 0.50
+RELIABILITY_THRESHOLDS = [0.1, 0.2, 0.3, 0.4]
+NORMALIZED_INSTALLED_CAPACITY_MW = 1.0  # normalized AEP basis
+
 os.makedirs(FIG_FOLDER, exist_ok=True)
 
+plt.rcParams["figure.dpi"] = 120
+plt.rcParams["axes.grid"] = True
+
+
 # ==============================
-# Helper Functions
+# Utility functions
 # ==============================
-def preprocess_country(df, country_code):
-    """Extract and preprocess data for a given country."""
-    if country_code not in df.columns:
-        raise ValueError(f"Country code {country_code} not found in CSV")
+
+def save_and_show(fig, filename: str) -> None:
+    path = os.path.join(FIG_FOLDER, filename)
+    fig.tight_layout()
+    fig.savefig(path, dpi=300, bbox_inches="tight")
+    plt.show()
+    plt.close(fig)
+
+
+def prepare_country_data(df: pd.DataFrame, country_code: str) -> pd.DataFrame:
     data = df[["Date", country_code]].copy()
     data["Date"] = pd.to_datetime(data["Date"], errors="coerce")
     data[country_code] = pd.to_numeric(data[country_code], errors="coerce")
-    data.set_index("Date", inplace=True)
-    return data.dropna()
+    data = data.dropna(subset=["Date"]).set_index("Date").sort_index()
+    return data
 
-def save_and_show(fig, filename):
-    """Show and save figure to Figures/ folder."""
-    filepath = os.path.join(FIG_FOLDER, filename)
-    plt.show()
-    fig.savefig(filepath, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Saved: {filepath}")
 
-# ==============================
-# Load Data
-# ==============================
-print("Reading CSV...")
-df = pd.read_csv(DATA_FILE, skiprows=52, header=0)
-print("Columns available:", df.columns.tolist()[:10])
+def basic_cf_stats(data: pd.DataFrame, col: str) -> pd.Series:
+    s = data[col]
+    return pd.Series({
+        "count": s.count(),
+        "mean_cf": s.mean(),
+        "std_cf": s.std(),
+        "min_cf": s.min(),
+        "p10": s.quantile(0.10),
+        "p25": s.quantile(0.25),
+        "median_cf": s.quantile(0.50),
+        "p75": s.quantile(0.75),
+        "p90": s.quantile(0.90),
+        "max_cf": s.max(),
+        "cv_percent": (s.std() / s.mean()) * 100 if s.mean() > 0 else np.nan,
+    })
 
-# Preprocess each country
-de_data = preprocess_country(df, "DE")
-dk_data = preprocess_country(df, "DK")
-nl_data = preprocess_country(df, "NL")
-countries = {"DE": de_data, "DK": dk_data, "NL": nl_data}
 
-# ==============================
-# Germany - Exploratory Analysis
-# ==============================
-print("Germany Data Shape:", de_data.shape)
+def max_consecutive(flag_series: pd.Series) -> int:
+    groups = (flag_series != flag_series.shift()).cumsum()
+    return int(flag_series.groupby(groups).sum().max())
 
-# Hourly plot
-fig, ax = plt.subplots(figsize=(15, 4))
-ax.plot(de_data.index, de_data["DE"], linewidth=0.5, color="blue")
-ax.set_title("Germany (DE) Wind Capacity Factor - Hourly (2024)")
-ax.set_xlabel("Date"); ax.set_ylabel("Wind Capacity Factor (MW/MW)")
-ax.grid(True)
-save_and_show(fig, "DE_hourly.png")
 
-# Aggregates
-de_daily = de_data["DE"].resample("D").mean()
-de_weekly = de_data["DE"].resample("W-MON").mean()
-de_monthly = de_data["DE"].resample("M").mean()
+def persistence_stats(data: pd.DataFrame, col: str,
+                      low_thr: float = LOW_CF_THRESHOLD,
+                      high_thr: float = HIGH_CF_THRESHOLD) -> pd.Series:
+    s = data[col]
+    low_flag = s <= low_thr
+    high_flag = s >= high_thr
 
-fig, ax = plt.subplots(figsize=(15, 4))
-ax.plot(de_daily.index, de_daily, label="Daily", color="orange")
-ax.plot(de_weekly.index, de_weekly, label="Weekly", color="green")
-ax.plot(de_monthly.index, de_monthly, label="Monthly", color="blue")
-ax.legend(); ax.grid(True)
-ax.set_title("Germany (DE) Aggregated Wind Capacity Factor")
-ax.set_xlabel("Date"); ax.set_ylabel("Wind CF")
-save_and_show(fig, "DE_aggregated.png")
+    return pd.Series({
+        "low_cf_hours": int(low_flag.sum()),
+        "high_cf_hours": int(high_flag.sum()),
+        "max_consec_low_hours": max_consecutive(low_flag),
+        "max_consec_high_hours": max_consecutive(high_flag),
+    })
 
-# ==============================
-# Descriptive Statistics (DE, DK, NL)
-# ==============================
-for country, data in countries.items():
-    print(f"\n{country} Statistics:\n", data[country].describe())
 
-    # Histogram
-    fig, ax = plt.subplots(figsize=(10, 5))
-    sns.histplot(data[country], bins=50, kde=True, ax=ax, color="skyblue")
-    ax.set_title(f"Histogram of {country} Wind Capacity Factor")
-    save_and_show(fig, f"{country}_histogram.png")
+def reliability_analysis(series: pd.Series,
+                         thresholds=RELIABILITY_THRESHOLDS) -> pd.DataFrame:
+    rows = []
+    for thr in thresholds:
+        above_prob = (series >= thr).mean()
+        below_flag = series < thr
+        groups = (below_flag != below_flag.shift()).cumsum()
+        max_consec_below = int(below_flag.groupby(groups).sum().max())
+        rows.append({
+            "Threshold": thr,
+            "P(CF >= Threshold)": above_prob,
+            "P(CF < Threshold)": 1 - above_prob,
+            "Max_Consec_Below": max_consec_below,
+        })
+    return pd.DataFrame(rows)
 
-    # Boxplot
-    fig, ax = plt.subplots(figsize=(6, 4))
-    sns.boxplot(x=data[country], ax=ax, color="lightgreen")
-    ax.set_title(f"Boxplot of {country} Wind Capacity Factor")
-    save_and_show(fig, f"{country}_boxplot.png")
 
-    # Diurnal
-    hourly = data[country].groupby(data.index.hour).mean()
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(hourly.index, hourly.values, marker="o", color="orange")
-    ax.set_title(f"Average Hourly Wind Capacity Factor ({country})")
-    ax.set_xlabel("Hour of Day"); ax.set_ylabel("Avg Wind CF")
-    save_and_show(fig, f"{country}_hourly.png")
+def monthly_seasonality(data: pd.DataFrame, col: str):
+    s = data[col]
+    month_mean = s.groupby(s.index.month).mean()
+    month_std = s.groupby(s.index.month).std()
+    return month_mean, month_std
 
-    # Monthly
-    monthly = data[country].resample("M").mean()
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(monthly.index, monthly.values, marker="o", color="green")
-    ax.set_title(f"Monthly Average Wind Capacity Factor ({country})")
-    save_and_show(fig, f"{country}_monthly.png")
 
-# ==============================
-# Extreme Wind & Reliability Analysis
-# ==============================
-low_thr, high_thr = 0.035, 0.517
-reliability_thresholds = [0.1, 0.2, 0.3, 0.4]
-
-summary = {}
-for country, data in countries.items():
-    data["Low_Wind"] = data[country] <= low_thr
-    data["High_Wind"] = data[country] >= high_thr
-
-    summary[country] = {
-        "Low_Wind_Hours": int(data["Low_Wind"].sum()),
-        "High_Wind_Hours": int(data["High_Wind"].sum())
+def seasonal_stats(data: pd.DataFrame, col: str) -> pd.DataFrame:
+    s = data[col].copy()
+    season_map = {
+        12: "DJF", 1: "DJF", 2: "DJF",
+        3: "MAM", 4: "MAM", 5: "MAM",
+        6: "JJA", 7: "JJA", 8: "JJA",
+        9: "SON", 10: "SON", 11: "SON"
     }
+    seasons = s.index.month.map(season_map)
+    grouped = s.groupby(seasons)
+    return pd.DataFrame({
+        "mean_cf": grouped.mean(),
+        "std_cf": grouped.std(),
+        "cv_percent": grouped.std() / grouped.mean() * 100,
+    })
 
-summary_df = pd.DataFrame(summary).T
-print("\nExtreme Wind Summary:\n", summary_df)
 
-# Reliability Analysis
-results = {}
-for country, data in countries.items():
-    total_hours = len(data)
-    res = []
-    for thr in reliability_thresholds:
-        above = (data[country] >= thr).mean()
-        below = 1 - above
-        res.append({"Threshold": thr, "P_Above": above, "P_Below": below})
-    results[country] = pd.DataFrame(res)
+def ramp_rate_stats(data: pd.DataFrame, col: str) -> pd.Series:
+    s = data[col]
+    ramp = s.diff().dropna()
+    return pd.Series({
+        "mean_abs_ramp": ramp.abs().mean(),
+        "p95_abs_ramp": ramp.abs().quantile(0.95),
+        "max_up_ramp": ramp.max(),
+        "max_down_ramp": ramp.min(),
+    })
+
+
+def annual_energy_from_cf(data: pd.DataFrame, col: str,
+                          installed_capacity_mw: float = NORMALIZED_INSTALLED_CAPACITY_MW):
+    s = data[col]
+    annual_cf = s.mean()
+    aep_mwh = (s * installed_capacity_mw).sum()  # hourly data => MW*h = MWh
+    return annual_cf, aep_mwh
+
 
 # ==============================
-# Germany - Capacity Factor & Power Output
+# Plot functions
 # ==============================
-P_rated = 3000  # kW (example rated turbine size)
-de_data["Power_kW"] = de_data["DE"] * P_rated
 
-CF = de_data["DE"].mean()
-AEP = de_data["Power_kW"].sum() / 1000  # MWh
-print(f"\nGermany Annual CF: {CF:.2%}")
-print(f"Germany Estimated AEP: {AEP:,.0f} MWh")
+def plot_hourly_comparison(countries: dict) -> None:
+    fig, ax = plt.subplots(figsize=(15, 4))
+    for code, data in countries.items():
+        ax.plot(data.index, data[code], label=COUNTRY_NAMES[code], linewidth=0.5, alpha=0.8)
+    ax.set_title("Hourly Wind Capacity Factor Comparison (2024)")
+    ax.set_xlabel("Date")
+    ax.set_ylabel("Capacity Factor")
+    ax.legend()
+    save_and_show(fig, "hourly_cf_comparison_2024.png")
 
-monthly_cf = de_data["DE"].resample("M").mean()
-fig, ax = plt.subplots(figsize=(10, 5))
-ax.plot(monthly_cf.index, monthly_cf.values, marker="o", color="blue")
-ax.set_title("Monthly Capacity Factor (Germany 2024)")
-ax.set_xlabel("Month"); ax.set_ylabel("Capacity Factor")
-ax.grid(True)
-save_and_show(fig, "DE_monthly_CF.png")
 
-print(f"\nAll figures saved in: {FIG_FOLDER}")
+def plot_aggregated_country(data: pd.DataFrame, col: str, country_name: str) -> None:
+    daily = data[col].resample("D").mean()
+    weekly = data[col].resample("W-MON").mean()
+    monthly = data[col].resample("ME").mean()
+
+    fig, ax = plt.subplots(figsize=(15, 4))
+    ax.plot(daily.index, daily.values, label="Daily", alpha=0.6)
+    ax.plot(weekly.index, weekly.values, label="Weekly", linewidth=2)
+    ax.plot(monthly.index, monthly.values, label="Monthly", linewidth=2)
+    ax.set_title(f"{country_name} Wind Capacity Factor Aggregation")
+    ax.set_xlabel("Date")
+    ax.set_ylabel("Capacity Factor")
+    ax.legend()
+    save_and_show(fig, f"{country_name}_cf_aggregation.png")
+
+
+def plot_distribution_and_diurnal(data: pd.DataFrame, col: str, country_name: str) -> None:
+    s = data[col]
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+
+    axes[0].hist(s.dropna(), bins=50)
+    axes[0].set_title(f"{country_name} CF Distribution")
+    axes[0].set_xlabel("Capacity Factor")
+
+    axes[1].boxplot(s.dropna(), vert=False)
+    axes[1].set_title(f"{country_name} CF Boxplot")
+    axes[1].set_xlabel("Capacity Factor")
+
+    diurnal = s.groupby(s.index.hour).mean()
+    axes[2].plot(diurnal.index, diurnal.values, marker="o")
+    axes[2].set_title(f"{country_name} Mean Diurnal Cycle")
+    axes[2].set_xlabel("Hour")
+    axes[2].set_ylabel("Capacity Factor")
+
+    save_and_show(fig, f"{country_name}_distribution_diurnal.png")
+
+
+def plot_monthly_comparison(countries: dict) -> None:
+    fig, ax = plt.subplots(figsize=(10, 4))
+    for code, data in countries.items():
+        mmean, _ = monthly_seasonality(data, code)
+        ax.plot(mmean.index, mmean.values, marker="o", label=COUNTRY_NAMES[code])
+    ax.set_title("Monthly Mean Capacity Factor")
+    ax.set_xlabel("Month")
+    ax.set_ylabel("Capacity Factor")
+    ax.set_xticks(range(1, 13))
+    ax.legend()
+    save_and_show(fig, "monthly_mean_cf_comparison.png")
+
+
+def plot_duration_curve(data: pd.DataFrame, col: str, country_name: str) -> None:
+    s = data[col].dropna().sort_values(ascending=False).reset_index(drop=True)
+    exceedance = np.arange(1, len(s) + 1) / len(s) * 100
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.plot(exceedance, s)
+    ax.set_xlabel("Exceedance Probability (%)")
+    ax.set_ylabel("Capacity Factor")
+    ax.set_title(f"{country_name} Capacity Factor Duration Curve")
+    save_and_show(fig, f"{country_name}_duration_curve.png")
+
+
+def plot_mean_cf_bar(final_summary: pd.DataFrame) -> None:
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.bar(final_summary.index, final_summary["mean_cf"])
+    ax.set_title("Mean Capacity Factor by Country")
+    ax.set_ylabel("Capacity Factor")
+    save_and_show(fig, "mean_cf_by_country.png")
+
+
+# ==============================
+# Main workflow
+# ==============================
+
+def main():
+    print("Loading dataset...")
+    df = pd.read_csv(DATA_FILE, skiprows=52)
+    print("Columns available:", df.columns.tolist()[:20])
+    print("Dataset shape:", df.shape)
+
+    # Prepare country datasets
+    countries = {code: prepare_country_data(df, code) for code in COUNTRIES}
+
+    print("\nPrepared datasets:")
+    for code, data in countries.items():
+        print(f"{COUNTRY_NAMES[code]}: {data.shape}")
+
+    # Basic stats
+    summary = pd.DataFrame({
+        COUNTRY_NAMES[code]: basic_cf_stats(data, code)
+        for code, data in countries.items()
+    }).T
+
+    print("\nBasic CF Statistics:")
+    print(summary.round(6))
+
+    # Persistence
+    persistence = pd.DataFrame({
+        COUNTRY_NAMES[code]: persistence_stats(data, code)
+        for code, data in countries.items()
+    }).T
+
+    print("\nPersistence Statistics:")
+    print(persistence)
+
+    # Reliability
+    reliability_tables = {}
+    for code, data in countries.items():
+        rel = reliability_analysis(data[code])
+        reliability_tables[COUNTRY_NAMES[code]] = rel
+        print(f"\nReliability Analysis — {COUNTRY_NAMES[code]}")
+        print(rel.round(6))
+
+    # Seasonal stats
+    for code, data in countries.items():
+        print(f"\nSeasonal Statistics — {COUNTRY_NAMES[code]}")
+        print(seasonal_stats(data, code).round(6))
+
+    # Ramp stats
+    ramps = pd.DataFrame({
+        COUNTRY_NAMES[code]: ramp_rate_stats(data, code)
+        for code, data in countries.items()
+    }).T
+
+    print("\nRamp-Rate Statistics:")
+    print(ramps.round(6))
+
+    # Normalized annual energy
+    energy_rows = []
+    for code, data in countries.items():
+        annual_cf, aep_mwh = annual_energy_from_cf(data, code)
+        energy_rows.append([COUNTRY_NAMES[code], annual_cf, aep_mwh])
+
+    energy_df = pd.DataFrame(
+        energy_rows,
+        columns=["Country", "Annual_CF", "AEP_MWh_for_1MW"]
+    )
+
+    print("\nNormalized Annual Energy:")
+    print(energy_df.round(6))
+
+    # Final summary
+    final_summary = summary.join(persistence).join(ramps)
+    final_summary = final_summary.join(
+        energy_df.set_index("Country")[["Annual_CF", "AEP_MWh_for_1MW"]]
+    )
+
+    print("\nFinal Summary Table:")
+    print(final_summary.round(6))
+
+    # Plots
+    plot_hourly_comparison(countries)
+    plot_aggregated_country(countries["DE"], "DE", "Germany")
+    plot_distribution_and_diurnal(countries["DE"], "DE", "Germany")
+    plot_monthly_comparison(countries)
+    plot_duration_curve(countries["DE"], "DE", "Germany")
+    plot_mean_cf_bar(final_summary)
+
+    print(f"\nAll figures saved in: {FIG_FOLDER}")
+
+
+if __name__ == "__main__":
+    main()
